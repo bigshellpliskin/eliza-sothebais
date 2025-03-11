@@ -9,19 +9,37 @@ RUN apt-get update && apt-get install -y curl git python3 make g++ build-essenti
 FROM base AS builder
 # Copy package files
 COPY package*.json ./
-# Install all dependencies including dev dependencies
-RUN npm install
+# Always generate package-lock.json, then use npm ci for deterministic installs
+RUN npm install --package-lock-only && npm ci
 # Copy source code
 COPY . .
 # Build the application using the tsup build script
 RUN npm run build
 
+# Development stage
+FROM base AS development
+# Copy package files
+COPY package*.json ./
+# Always generate package-lock.json, then use npm ci for deterministic installs
+RUN npm install --package-lock-only && npm ci
+# Copy source code
+COPY . .
+# Expose ports
+EXPOSE 4400 4401 4490 4491
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:4491/health || exit 1
+# Start in development mode
+CMD ["npm", "run", "dev"]
+
 # Production stage
 FROM base AS production
 # Copy package files
 COPY package*.json ./
+# Copy package-lock.json from builder stage
+COPY --from=builder /app/package-lock.json ./
 # Install only production dependencies
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 # Expose ports (4400: Main API, 4401: WebSocket, 4490: Metrics, 4491: Health)
