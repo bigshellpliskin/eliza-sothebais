@@ -1,61 +1,37 @@
-# Use a specific Node.js version for better reproducibility
-FROM node:23.3.0-slim AS builder
+# syntax=docker/dockerfile:1
 
-# Install pnpm globally and install necessary build tools
-RUN npm install -g pnpm@9.15.1 && \
-    apt-get update && \
-    apt-get install -y git python3 make g++ && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-# Set Python 3 as the default python
-RUN ln -s /usr/bin/python3 /usr/bin/python
-
-# Set the working directory
+# Base stage with common dependencies
+FROM node:22-slim AS base
 WORKDIR /app
+RUN apt-get update && apt-get install -y curl git python3 make g++ build-essential
 
-# Copy package.json and other configuration files
-COPY package.json ./
-COPY pnpm-lock.yaml ./
-COPY tsconfig.json ./
+# Build stage
+FROM base AS builder
+# Copy package files
+COPY package*.json ./
+# Install all dependencies including dev dependencies
+RUN npm install
+# Copy source code
+COPY . .
+# Build the application using the tsup build script
+RUN npm run build
 
-# Copy the rest of the application code
-COPY ./src ./src
-COPY ./characters ./characters
-
-# Install dependencies and build the project
-RUN pnpm install 
-RUN pnpm build 
-
-# Create dist directory and set permissions
-RUN mkdir -p /app/dist && \
-    chown -R node:node /app && \
-    chmod -R 755 /app
-
-# Switch to node user
-USER node
-
-# Create a new stage for the final image
-FROM node:23.3.0-slim
-
-# Install runtime dependencies if needed
-RUN npm install -g pnpm@9.15.1
-RUN apt-get update && \
-    apt-get install -y git python3 && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-# Copy built artifacts and production dependencies from the builder stage
-COPY --from=builder /app/package.json /app/
-COPY --from=builder /app/node_modules /app/node_modules
-COPY --from=builder /app/src /app/src
-COPY --from=builder /app/characters /app/characters
-COPY --from=builder /app/dist /app/dist
-COPY --from=builder /app/tsconfig.json /app/
-COPY --from=builder /app/pnpm-lock.yaml /app/
-
-EXPOSE 3000
-# Set the command to run the application
-CMD ["pnpm", "start", "--non-interactive"]
+# Production stage
+FROM base AS production
+# Copy package files
+COPY package*.json ./
+# Install only production dependencies
+RUN npm install --omit=dev
+# Copy built files from builder
+COPY --from=builder /app/dist ./dist
+# Expose ports (4400: Main API, 4401: WebSocket, 4490: Metrics, 4491: Health)
+EXPOSE 4400 4401 4490 4491
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:4491/health || exit 1
+# Set environment variables to skip problematic features
+ENV ELIZA_DISABLE_EMBEDDINGS=true
+ENV ELIZA_DISABLE_LLM=true
+ENV ELIZA_MINIMAL_MODE=true
+# Start the application using the built files
+CMD ["node", "dist/index.js"]
