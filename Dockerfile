@@ -22,6 +22,8 @@ FROM base AS development
 COPY package*.json ./
 # Always generate package-lock.json, then use npm ci for deterministic installs
 RUN npm install --package-lock-only && npm ci
+# Verify that ts-node is installed for the start script
+RUN npm list ts-node || npm install -g ts-node
 # Copy source code
 COPY . .
 # Expose ports
@@ -29,8 +31,8 @@ EXPOSE 4400 4401 4490 4491
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:4491/health || exit 1
-# Start in development mode
-CMD ["npm", "run", "dev"]
+# Start using the start script instead of dev
+CMD ["npm", "run", "start"]
 
 # Production stage
 FROM base AS production
