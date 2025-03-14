@@ -2,8 +2,8 @@ services:
     eliza:
         command: ["pnpm", "start", "--character=./characters/eliza.character.json"]
         build:
-            context: .
-            dockerfile: Dockerfile
+            context: ${DOCKER_BUILD_CONTEXT:-.}
+            dockerfile: ${DOCKER_FILE_PATH:-Dockerfile}
         stdin_open: true
         tty: true
         volumes:
